@@ -45,18 +45,17 @@
     "kv_namespaces": [
         {
             "binding": "FULL_CONTENT_KV",
-            "id": "00000000000000000000000000000010"
+            "id": "FULL_CONTENT_KV"
         },
         {
             "binding": "OAUTH_KV",
-            "id": "00000000000000000000000000000020"
+            "id": "OAUTH_KV"
         }
     ],
     "d1_databases": [
         {
             "binding": "DB",
             "database_name": "larafeed-template",
-            "database_id": "00000000-0000-0000-0000-000000000010",
             "migrations_dir": "migrations"
         }
     ],
