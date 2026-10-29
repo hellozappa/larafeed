@@ -4,13 +4,14 @@
     "main": "./src/worker/index.ts",
     "compatibility_date": "2026-07-18",
     "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-    "workers_dev": true,
+    "routes": [{ "pattern": "news.chriszappa.com", "custom_domain": true }],
+    "workers_dev": false,
     "preview_urls": false,
     "placement": { "mode": "smart" },
     "secrets": { "required": ["AUTH_OPERATOR_SECRET"] },
     "vars": {
         "AUTH_ENVIRONMENT": "production",
-        "AUTH_ORIGIN": "https://larafeed.anthroloic-notion-linear.workers.dev",
+        "AUTH_ORIGIN": "https://news.chriszappa.com",
         "AUTH_RP_NAME": "Larafeed",
         "AUTH_CHALLENGE_TTL_SECONDS": "300",
         "AUTH_SESSION_TTL_SECONDS": "2592000",
@@ -129,13 +130,14 @@
     "env": {
         "production": {
             "name": "larafeed",
-            "workers_dev": true,
+            "routes": [{ "pattern": "news.chriszappa.com", "custom_domain": true }],
+            "workers_dev": false,
             "preview_urls": false,
             "placement": { "mode": "smart" },
             "secrets": { "required": ["AUTH_OPERATOR_SECRET"] },
             "vars": {
                 "AUTH_ENVIRONMENT": "production",
-                "AUTH_ORIGIN": "https://larafeed.anthroloic-notion-linear.workers.dev",
+                "AUTH_ORIGIN": "https://news.chriszappa.com",
                 "AUTH_RP_NAME": "Larafeed",
                 "AUTH_CHALLENGE_TTL_SECONDS": "300",
                 "AUTH_SESSION_TTL_SECONDS": "2592000",

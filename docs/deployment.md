@@ -19,7 +19,7 @@ After the first deployment, open the D1 database settings and enable Read Replic
 
 ## Manual deployment
 
-Requirements: Node.js 24, Bun 1.3.14, and an authenticated Wrangler session. In this fork, both the default environment and the named `production` environment target the existing `larafeed` Worker and the same storage resources. The authentication origin is `https://larafeed.anthroloic-notion-linear.workers.dev`.
+Requirements: Node.js 24, Bun 1.3.14, and an authenticated Wrangler session. In this fork, both the default environment and the named `production` environment target the existing `larafeed` Worker and the same storage resources. The authentication origin is `https://news.chriszappa.com`.
 
 ### Existing deployment in this fork
 
@@ -27,7 +27,7 @@ Reuse the `larafeed-template` D1 database, `larafeed-template-full-content` and 
 
 Workers Builds should use `bun run build` as its build command and `bun run deploy:ci` as its deploy command. The latter validates the generated artifact, applies pending D1 migrations, and deploys that same artifact. A bare `npx wrangler deploy` skips migrations. The `AUTH_OPERATOR_SECRET` runtime secret must be configured on `larafeed` before deployment. Keep its value out of source control and build logs.
 
-AI summaries, Images processing, and favicon refresh are disabled in both deployment environments. Preview URLs are disabled. The named production environment has no custom domain route. Enabling the configured `workers.dev` URL publishes the application, so obtain the required production deployment approval first.
+AI summaries, Images processing, and favicon refresh are disabled in both deployment environments. Both environments use the `news.chriszappa.com` Worker Custom Domain, with `workers.dev` and preview URLs disabled. Cloudflare provisions DNS and TLS for the Custom Domain. Obtain the required production deployment and routing approval before publishing it.
 
 ### Provision a fresh portable environment
 
