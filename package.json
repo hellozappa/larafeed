@@ -37,7 +37,8 @@
         "test:cloudflare": "bun run test",
         "validate": "bun run lint-check && bun run typecheck && bun run types:check:cloudflare && bun run test && bun run test:browser && bun run deploy:check && bun run deploy:check:production",
         "validate:release": "bun run validate && bun run d1:validate:large",
-        "release:production": "bun run validate:release && bun run deploy:production"
+        "release:production": "bun run validate:release && bun run deploy:production",
+        "deploy:ci": "bun run deploy:artifact:check && bun run d1:migrate && bun run deploy:artifact"
     },
     "cloudflare": {
         "bindings": {

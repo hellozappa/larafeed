@@ -1,16 +1,17 @@
 {
     "$schema": "./node_modules/wrangler/config-schema.json",
-    "name": "larafeed-template",
+    "name": "larafeed",
     "main": "./src/worker/index.ts",
     "compatibility_date": "2026-07-18",
     "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-    "workers_dev": true,
-    "preview_urls": true,
+    "routes": [{ "pattern": "news.chriszappa.com", "custom_domain": true }],
+    "workers_dev": false,
+    "preview_urls": false,
     "placement": { "mode": "smart" },
     "secrets": { "required": ["AUTH_OPERATOR_SECRET"] },
     "vars": {
         "AUTH_ENVIRONMENT": "production",
-        "AUTH_ORIGIN": "https://larafeed.example.com",
+        "AUTH_ORIGIN": "https://news.chriszappa.com",
         "AUTH_RP_NAME": "Larafeed",
         "AUTH_CHALLENGE_TTL_SECONDS": "300",
         "AUTH_SESSION_TTL_SECONDS": "2592000",
@@ -129,66 +130,61 @@
     "env": {
         "production": {
             "name": "larafeed",
+            "routes": [{ "pattern": "news.chriszappa.com", "custom_domain": true }],
             "workers_dev": false,
             "preview_urls": false,
             "placement": { "mode": "smart" },
             "secrets": { "required": ["AUTH_OPERATOR_SECRET"] },
             "vars": {
                 "AUTH_ENVIRONMENT": "production",
-                "AUTH_ORIGIN": "https://larafeed.stanislas.cloud",
+                "AUTH_ORIGIN": "https://news.chriszappa.com",
                 "AUTH_RP_NAME": "Larafeed",
                 "AUTH_CHALLENGE_TTL_SECONDS": "300",
                 "AUTH_SESSION_TTL_SECONDS": "2592000",
                 "TURNSTILE_ENABLED": "false",
-                "AI_SUMMARY_ENABLED": "true",
+                "AI_SUMMARY_ENABLED": "false",
                 "AI_GATEWAY_NAME": "larafeed",
                 "AI_MODEL": "@cf/mistralai/mistral-small-3.1-24b-instruct",
                 "FULL_CONTENT_ENABLED": "true",
                 "REFRESH_SCHEDULER_ENABLED": "true",
                 "REFRESH_DISPATCH_ENABLED": "true",
-                "REFRESH_DUE_LIMIT": "10",
+                "REFRESH_DUE_LIMIT": "5",
                 "OPML_IMPORT_ENABLED": "true",
-                "FAVICON_REFRESH_ENABLED": "true",
-                "IMAGES_ENABLED": "true",
-                "FEED_REFRESH_QUEUE_NAME": "larafeed-feed-refresh",
-                "OPML_IMPORT_QUEUE_NAME": "larafeed-opml-import",
-                "FAVICON_REFRESH_QUEUE_NAME": "larafeed-favicon-refresh"
+                "FAVICON_REFRESH_ENABLED": "false",
+                "IMAGES_ENABLED": "false",
+                "FEED_REFRESH_QUEUE_NAME": "larafeed-template-feed-refresh",
+                "OPML_IMPORT_QUEUE_NAME": "larafeed-template-opml-import",
+                "FAVICON_REFRESH_QUEUE_NAME": "larafeed-template-favicon-refresh"
             },
-            "routes": [
-                {
-                    "pattern": "larafeed.stanislas.cloud",
-                    "custom_domain": true
-                }
-            ],
             "images": { "binding": "IMAGES" },
             "ai": { "binding": "AI" },
             "kv_namespaces": [
                 {
                     "binding": "FULL_CONTENT_KV",
-                    "id": "8cc40ea7073d41e18eedc731826a0afe"
+                    "id": "cf96f22ae36a433aacde40769c42d851"
                 },
                 {
                     "binding": "OAUTH_KV",
-                    "id": "6c010dd6262f4152bf3310b128f4b90f"
+                    "id": "daa54f206fbc4768b1cee78f3a3bdd3e"
                 }
             ],
             "d1_databases": [
                 {
                     "binding": "DB",
-                    "database_name": "larafeed",
-                    "database_id": "f22a3327-4f5f-4a5c-9aa9-3ede8ba03796",
+                    "database_name": "larafeed-template",
+                    "database_id": "676d4d38-f60a-49cd-85fd-322b596d097f",
                     "migrations_dir": "migrations"
                 }
             ],
             "ratelimits": [
                 {
                     "name": "AUTH_RATE_LIMITER",
-                    "namespace_id": "1001",
+                    "namespace_id": "9001",
                     "simple": { "limit": 20, "period": 60 }
                 },
                 {
                     "name": "COMPAT_RATE_LIMITER",
-                    "namespace_id": "2001",
+                    "namespace_id": "9002",
                     "simple": { "limit": 300, "period": 60 }
                 }
             ],
@@ -196,34 +192,34 @@
                 "producers": [
                     {
                         "binding": "FEED_REFRESH_QUEUE",
-                        "queue": "larafeed-feed-refresh"
+                        "queue": "larafeed-template-feed-refresh"
                     },
                     {
                         "binding": "OPML_IMPORT_QUEUE",
-                        "queue": "larafeed-opml-import"
+                        "queue": "larafeed-template-opml-import"
                     },
                     {
                         "binding": "FAVICON_REFRESH_QUEUE",
-                        "queue": "larafeed-favicon-refresh"
+                        "queue": "larafeed-template-favicon-refresh"
                     }
                 ],
                 "consumers": [
                     {
-                        "queue": "larafeed-feed-refresh",
+                        "queue": "larafeed-template-feed-refresh",
                         "max_batch_size": 1,
                         "max_batch_timeout": 1,
                         "max_retries": 5,
-                        "max_concurrency": 3
+                        "max_concurrency": 2
                     },
                     {
-                        "queue": "larafeed-opml-import",
+                        "queue": "larafeed-template-opml-import",
                         "max_batch_size": 1,
                         "max_batch_timeout": 1,
                         "max_retries": 5,
                         "max_concurrency": 1
                     },
                     {
-                        "queue": "larafeed-favicon-refresh",
+                        "queue": "larafeed-template-favicon-refresh",
                         "max_batch_size": 1,
                         "max_batch_timeout": 1,
                         "max_retries": 5,
@@ -231,7 +227,7 @@
                     }
                 ]
             },
-            "triggers": { "crons": ["*/5 * * * *"] },
+            "triggers": { "crons": ["*/10 * * * *"] },
             "observability": {
                 "enabled": true,
                 "logs": {
