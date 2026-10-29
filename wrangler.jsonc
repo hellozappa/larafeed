@@ -45,11 +45,11 @@
     "kv_namespaces": [
         {
             "binding": "FULL_CONTENT_KV",
-            "id": "FULL_CONTENT_KV"
+            "id": "cf96f22ae36a433aacde40769c42d851"
         },
         {
             "binding": "OAUTH_KV",
-            "id": "OAUTH_KV"
+            "id": "daa54f206fbc4768b1cee78f3a3bdd3e"
         }
     ],
     "d1_databases": [
