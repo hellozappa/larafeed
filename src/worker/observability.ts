@@ -8,6 +8,7 @@ export const operationNames = {
     opmlCron: 'app.opml.cron',
     faviconCron: 'app.favicon.cron',
     searchCron: 'app.search.cron',
+    searchCleanupCron: 'app.search.cleanup.cron',
 } as const;
 
 export const spanNames = {
@@ -157,7 +158,7 @@ export const recordHandledFailure = (
 };
 
 export const recordCronResult = (
-    subsystem: 'favicon' | 'opml' | 'refresh' | 'search',
+    subsystem: 'favicon' | 'opml' | 'refresh' | 'search' | 'search_cleanup',
     attributes: TelemetryAttributes,
     degraded = false,
 ): void => {

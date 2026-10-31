@@ -14,7 +14,11 @@ import {
 } from './opml';
 import { handleRefreshCron, handleRefreshQueue } from './refresh/handlers';
 import { runScheduledSubsystems } from './scheduled';
-import { handleSearchIndexCron } from './search/indexer';
+import {
+    handleSearchCleanupCron,
+    handleSearchIndexCron,
+    SEARCH_CLEANUP_CRON,
+} from './search/indexer';
 
 export { app, createApp } from './app';
 
@@ -65,6 +69,15 @@ export default {
         throw new Error('Unknown Queue binding');
     },
     scheduled: async (controller, env) => {
+        if (controller.cron === SEARCH_CLEANUP_CRON) {
+            await traceOperation(
+                operationNames.searchCleanupCron,
+                'scheduled',
+                {},
+                () => handleSearchCleanupCron(makeD1(env.DB)),
+            );
+            return;
+        }
         await runScheduledSubsystems([
             () =>
                 traceOperation(

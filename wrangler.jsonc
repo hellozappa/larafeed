@@ -112,7 +112,7 @@
             }
         ]
     },
-    "triggers": { "crons": ["*/10 * * * *"] },
+    "triggers": { "crons": ["*/10 * * * *", "0 0 * * *"] },
     "observability": {
         "enabled": true,
         "logs": {
@@ -227,7 +227,7 @@
                     }
                 ]
             },
-            "triggers": { "crons": ["*/10 * * * *"] },
+            "triggers": { "crons": ["*/10 * * * *", "0 0 * * *"] },
             "observability": {
                 "enabled": true,
                 "logs": {

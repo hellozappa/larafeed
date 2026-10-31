@@ -157,6 +157,8 @@ After restore:
 
 `entry_search` is an FTS5 table that the scheduled indexer fills from `entries` and `entry_contents`, 200 entries per cron run. An entry is pending when `entries.search_indexed_at` is NULL or older than `updated_at`. The cron result span `app.cron.result` with `app.subsystem=search` reports `app.search.indexed` and `app.search.backlog`.
 
+The ten-minute schedule indexes new and changed articles without scanning for orphaned search records. A separate `0 0 * * *` Cron Trigger runs orphan cleanup once daily at midnight UTC, removing up to 500 search records whose articles no longer exist. This daily event runs only cleanup. Feed refresh and normal indexing retain their ten-minute schedule. Search queries join the article table, so orphaned records remain hidden while awaiting cleanup. If more than 500 orphaned records accumulate, later daily runs remove the remainder. The cleanup reports `app.search.orphans_removed` under `app.subsystem=search_cleanup`.
+
 To rebuild the whole index, mark every entry pending; the cron catches up over the next runs:
 
 ```sql
