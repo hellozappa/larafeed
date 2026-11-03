@@ -38,7 +38,7 @@ const key = (id: number) => {
 };
 
 describe('D1 background read costs', () => {
-    it('does not scan completed history during idle recovery', async () => {
+    it('bounds idle recovery and dispatch despite completed job history', async () => {
         const now = 2_200_100_000_000;
         for (let offset = 0; offset < 1_000; offset += 50) {
             await env.DB.batch(
@@ -74,6 +74,14 @@ describe('D1 background read costs', () => {
                 50,
             ),
         ).resolves.toEqual({ imports: 0, jobs: 0 });
+        await expect(
+            makeJobRepository(observed).leaseOutbox({
+                owner: 'idle-dispatch',
+                now,
+                leaseMs: 60_000,
+                limit: 50,
+            }),
+        ).resolves.toEqual([]);
 
         const reads = measurements.reduce(
             (sum, item) => sum + item.meta.rows_read,
@@ -110,9 +118,91 @@ describe('D1 background read costs', () => {
                 ),
             ).toBe(false);
         }
+        const dispatch = measurements.filter(
+            ({ statement }) =>
+                statement.sql.includes('ORDER BY o.lease_expires_at') ||
+                statement.sql.includes('ORDER BY o.available_at'),
+        );
+        expect(dispatch).toHaveLength(2);
+        for (const { statement } of dispatch) {
+            const plan = await run(
+                d1.all<{ detail: string }>({
+                    sql: `EXPLAIN QUERY PLAN ${statement.sql}`,
+                    bindings: statement.bindings,
+                }),
+            );
+            expect(
+                plan.results.some(({ detail }) =>
+                    /USING INDEX outbox_messages_(?:expired_leases|pending)/u.test(
+                        detail,
+                    ),
+                ),
+            ).toBe(true);
+            expect(
+                plan.results.some(({ detail }) =>
+                    detail.includes('SEARCH j USING INTEGER PRIMARY KEY'),
+                ),
+            ).toBe(true);
+        }
         console.log(
             JSON.stringify({ scenario: 'idle_recovery', reads, writes }),
         );
+    }, 60_000);
+
+    it('selects a scoped dispatch without walking unrelated pending messages', async () => {
+        const now = 2_200_150_000_000;
+        for (let offset = 0; offset < 100; offset += 20) {
+            const statements: D1PreparedStatement[] = [];
+            for (let index = offset; index < offset + 20; index += 1) {
+                const id = 8_000_000 + index;
+                const operationId = `scoped-dispatch-${index}`;
+                statements.push(
+                    env.DB.prepare(`INSERT INTO jobs (
+                        id,operation_id,kind,state,payload_json,max_attempts,
+                        available_at,created_at,updated_at
+                    ) VALUES (?,?,'feed_refresh','pending',?,8,?,?,?)`).bind(
+                        id,
+                        operationId,
+                        JSON.stringify({ feedId: id }),
+                        now,
+                        now,
+                        now,
+                    ),
+                    env.DB.prepare(`INSERT INTO outbox_messages (
+                        id,job_id,topic,payload_json,state,available_at,created_at,updated_at
+                    ) VALUES (?,?,'feed-refresh',?,'pending',?,?,?)`).bind(
+                        8_100_000 + index,
+                        id,
+                        JSON.stringify({ operationId }),
+                        now,
+                        now,
+                        now,
+                    ),
+                );
+            }
+            await env.DB.batch(statements);
+        }
+        const { observed, measurements } = observe();
+        const leased = await makeJobRepository(observed).leaseOutbox({
+            owner: 'scoped-dispatch',
+            now,
+            leaseMs: 60_000,
+            limit: 1,
+            operationId: 'scoped-dispatch-99',
+        });
+        expect(leased.map(({ operationId }) => operationId)).toEqual([
+            'scoped-dispatch-99',
+        ]);
+        const reads = measurements.reduce(
+            (sum, item) => sum + item.meta.rows_read,
+            0,
+        );
+        expect(reads).toBeLessThan(30);
+        const pending = await env.DB.prepare(`SELECT COUNT(*) AS total
+            FROM outbox_messages WHERE id >= ? AND id < ? AND state = 'pending'`)
+            .bind(8_100_000, 8_100_100)
+            .first<{ total: number }>();
+        expect(pending?.total).toBe(99);
     }, 60_000);
 
     it('bounds unfiltered refresh work to the incoming articles', async () => {
