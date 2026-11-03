@@ -1843,7 +1843,7 @@ describe('durable feed refresh jobs', () => {
         ).resolves.toEqual({ entries_created: 0, entries_updated: 1 });
     });
 
-    it('updates sparse filter matches without clearing starred state', async () => {
+    it('clears obsolete filter matches without clearing saved interaction state', async () => {
         const now = 2_100_005_500_000;
         const userId = 365_001;
         const categoryId = 365_002;
@@ -1947,9 +1947,17 @@ describe('durable feed refresh jobs', () => {
         await run(
             d1.run({
                 sql: `UPDATE entry_interactions
-                    SET starred_at = ?, updated_at = ?
+                    SET starred_at = ?, archived_at = ?, read_override = 1,
+                        read_changed_at = ?, updated_at = ?
                     WHERE user_id = ? AND entry_id = ?`,
-                bindings: [now + 2, now + 2, userId, persistedEntryId],
+                bindings: [
+                    now + 2,
+                    now + 2,
+                    now + 2,
+                    now + 2,
+                    userId,
+                    persistedEntryId,
+                ],
             }),
         );
         await createJob(feedId, 365_201, now + 3);
@@ -1984,14 +1992,21 @@ describe('durable feed refresh jobs', () => {
             first<{
                 filtered_at: number | null;
                 starred_at: number | null;
+                archived_at: number | null;
+                read_override: number | null;
+                read_changed_at: number | null;
             }>(
-                `SELECT filtered_at, starred_at FROM entry_interactions
+                `SELECT filtered_at, starred_at, archived_at,
+                    read_override, read_changed_at FROM entry_interactions
                  WHERE user_id = ? AND entry_id = ?`,
                 [userId, persistedEntryId],
             ),
         ).resolves.toEqual({
             filtered_at: null,
             starred_at: now + 2,
+            archived_at: now + 2,
+            read_override: 1,
+            read_changed_at: now + 2,
         });
     });
 
