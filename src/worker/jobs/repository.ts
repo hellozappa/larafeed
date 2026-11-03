@@ -536,6 +536,10 @@ export const makeJobRepository = (d1: D1): JobRepository => ({
             input.operationId === undefined ? '' : ' AND j.operation_id = ?';
         const operationBindings =
             input.operationId === undefined ? [] : [input.operationId];
+        // Cron seeks pending or expired messages before looking up their jobs.
+        // Scoped dispatch uses the job's unique operation ID.
+        const jobsJoin =
+            input.operationId === undefined ? 'CROSS JOIN' : 'JOIN';
         const results = await run(
             operation,
             d1.batch<OutboxRow>([
@@ -546,7 +550,7 @@ export const makeJobRepository = (d1: D1): JobRepository => ({
                             available_at = MIN(available_at, ?), updated_at = ?
                         WHERE id IN (
                             SELECT o.id FROM outbox_messages o
-                            JOIN jobs j ON j.id = o.job_id
+                            ${jobsJoin} jobs j ON j.id = o.job_id
                             WHERE o.topic = ? AND j.kind = ?${operationScope}
                               AND o.state = 'leased'
                               AND o.lease_expires_at <= ?
@@ -568,7 +572,7 @@ export const makeJobRepository = (d1: D1): JobRepository => ({
                             lease_expires_at = ?, updated_at = ?
                         WHERE id IN (
                             SELECT o.id FROM outbox_messages o
-                            JOIN jobs j ON j.id = o.job_id
+                            ${jobsJoin} jobs j ON j.id = o.job_id
                             WHERE o.topic = ? AND j.kind = ?${operationScope}
                               AND o.state = 'pending' AND o.available_at <= ?
                             ORDER BY o.available_at, o.id LIMIT ?
