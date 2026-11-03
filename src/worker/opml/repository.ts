@@ -1582,7 +1582,7 @@ export const makeOpmlRepository = (d1: D1): OpmlRepository => ({
                         lease_owner = NULL, lease_expires_at = NULL,
                         last_error_class = 'queue_redrive_exhausted',
                         last_error_message = 'Queue delivery was not completed', updated_at = ?
-                    WHERE kind = ? AND state NOT IN ('succeeded', 'dead_lettered', 'canceled')
+                    WHERE kind = ? AND state IN ('pending', 'queued', 'running', 'failed')
                         AND EXISTS (SELECT 1 FROM outbox_messages o
                             WHERE o.job_id = jobs.id AND o.topic = ?
                                 AND o.state = 'dead_lettered' AND o.updated_at = ?

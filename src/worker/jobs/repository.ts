@@ -1407,15 +1407,17 @@ export const makeJobRepository = (d1: D1): JobRepository => ({
             );
         }
         const publisherHintProvided = publisherHint !== undefined;
-        const filterMappings = JSON.stringify(
-            input.entries.map((entry) => ({
-                deduplicationKey: Array.from(entry.deduplicationKey, (byte) =>
-                    byte.toString(16).padStart(2, '0'),
-                )
-                    .join('')
-                    .toUpperCase(),
-                filteredUserIds: entry.filteredUserIds,
-            })),
+        const entryMappings = input.entries.map((entry) => ({
+            deduplicationKey: Array.from(entry.deduplicationKey, (byte) =>
+                byte.toString(16).padStart(2, '0'),
+            )
+                .join('')
+                .toUpperCase(),
+            filteredUserIds: entry.filteredUserIds,
+        }));
+        const filterMappings = JSON.stringify(entryMappings);
+        const matchedFilterMappings = entryMappings.filter(
+            (mapping) => mapping.filteredUserIds.length > 0,
         );
 
         statements.push({
@@ -1615,10 +1617,10 @@ export const makeJobRepository = (d1: D1): JobRepository => ({
 
         if (input.entries.length > 0) {
             const refreshedEntryIds = `SELECT e.id
-                FROM entries e
-                JOIN json_each(?) mapping
-                  ON hex(e.deduplication_key) = json_extract(mapping.value, '$.deduplicationKey')
-                WHERE e.feed_id = ?`;
+                FROM json_each(?) mapping
+                CROSS JOIN entries e
+                  ON e.feed_id = ?
+                 AND e.deduplication_key = unhex(json_extract(mapping.value, '$.deduplicationKey'))`;
             const currentFilterRevision = `EXISTS (
                 SELECT 1 FROM json_each(?) snapshot
                 JOIN feed_subscriptions fs
@@ -1668,8 +1670,9 @@ export const makeJobRepository = (d1: D1): JobRepository => ({
                 ],
             });
             mutationKinds.push('any');
-            statements.push({
-                sql: `INSERT INTO entry_interactions (
+            if (matchedFilterMappings.length > 0) {
+                statements.push({
+                    sql: `INSERT INTO entry_interactions (
                         user_id, feed_id, entry_id, read_override,
                         read_changed_at, starred_at, archived_at,
                         filtered_at, created_at, updated_at
@@ -1677,10 +1680,10 @@ export const makeJobRepository = (d1: D1): JobRepository => ({
                     SELECT CAST(users.value AS INTEGER), ?, e.id,
                         NULL, NULL, NULL, NULL, ?, ?, ?
                     FROM json_each(?) mapping
-                    JOIN entries e
+                    CROSS JOIN json_each(mapping.value, '$.filteredUserIds') users
+                    CROSS JOIN entries e
                       ON e.feed_id = ?
-                     AND hex(e.deduplication_key) = json_extract(mapping.value, '$.deduplicationKey')
-                    JOIN json_each(mapping.value, '$.filteredUserIds') users
+                     AND e.deduplication_key = unhex(json_extract(mapping.value, '$.deduplicationKey'))
                     JOIN json_each(?) snapshot
                       ON CAST(json_extract(snapshot.value, '$.userId') AS INTEGER)
                        = CAST(users.value AS INTEGER)
@@ -1696,18 +1699,19 @@ export const makeJobRepository = (d1: D1): JobRepository => ({
                     ON CONFLICT(user_id, entry_id) DO UPDATE SET
                         filtered_at = excluded.filtered_at,
                         updated_at = excluded.updated_at`,
-                bindings: [
-                    input.claim.feedId,
-                    input.completedAt,
-                    input.completedAt,
-                    input.completedAt,
-                    filterMappings,
-                    input.claim.feedId,
-                    filterRevisionMappings,
-                    ...conditionBindings,
-                ],
-            });
-            mutationKinds.push('any');
+                    bindings: [
+                        input.claim.feedId,
+                        input.completedAt,
+                        input.completedAt,
+                        input.completedAt,
+                        JSON.stringify(matchedFilterMappings),
+                        input.claim.feedId,
+                        filterRevisionMappings,
+                        ...conditionBindings,
+                    ],
+                });
+                mutationKinds.push('any');
+            }
         }
 
         statements.push({
@@ -1717,18 +1721,19 @@ export const makeJobRepository = (d1: D1): JobRepository => ({
                     entries_created, entries_updated, duration_ms, created_at
                 )
                 SELECT ?, ?, j.id, ?, 1, ?, ?, ?,
-                    (SELECT COUNT(*) FROM entries refreshed
-                     JOIN json_each(?) mapping
-                       ON hex(refreshed.deduplication_key) =
-                          json_extract(mapping.value, '$.deduplicationKey')
-                     WHERE refreshed.feed_id = ? AND refreshed.created_at = ?
+                    (SELECT COUNT(*) FROM json_each(?) mapping
+                     CROSS JOIN entries refreshed
+                       ON refreshed.feed_id = ?
+                      AND refreshed.deduplication_key =
+                          unhex(json_extract(mapping.value, '$.deduplicationKey'))
+                     WHERE refreshed.created_at = ?
                        AND refreshed.updated_at = ?),
-                    (SELECT COUNT(*) FROM entries refreshed
-                     JOIN json_each(?) mapping
-                       ON hex(refreshed.deduplication_key) =
-                          json_extract(mapping.value, '$.deduplicationKey')
-                     WHERE refreshed.feed_id = ?
-                       AND refreshed.created_at IS NOT ?
+                    (SELECT COUNT(*) FROM json_each(?) mapping
+                     CROSS JOIN entries refreshed
+                       ON refreshed.feed_id = ?
+                      AND refreshed.deduplication_key =
+                          unhex(json_extract(mapping.value, '$.deduplicationKey'))
+                     WHERE refreshed.created_at IS NOT ?
                        AND refreshed.updated_at = ?),
                     ?, ?
                 FROM jobs j WHERE ${commitPredicate}`,
