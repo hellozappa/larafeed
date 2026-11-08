@@ -519,14 +519,34 @@ export const makeReaderRepository = (d1: D1): ReaderRepository => ({
     listEntries: (userId, query) =>
         Effect.gen(function* () {
             const operation = 'reader.entries.list';
+            const checkGlobalOrder = () =>
+                withStorageError(
+                    operation,
+                    d1.first<{ eligible: number }>({
+                        sql: `SELECT NOT EXISTS (
+                        SELECT 1 FROM feeds f WHERE NOT EXISTS (
+                            SELECT 1 FROM feed_subscriptions fs
+                            WHERE fs.user_id = ? AND fs.feed_id = f.id
+                        )
+                    ) AS eligible`,
+                        bindings: [userId],
+                    }),
+                ).pipe(Effect.map((row) => row?.eligible === 1));
             const scope = scopeSql(query.scope, userId);
             const orderColumn =
                 query.orderBy === 'created_at'
                     ? 'e.created_at'
                     : 'e.published_at';
             const range = rangeSql(orderColumn, query.range);
+            // Use the global ordering index only when all feeds are subscribed.
+            // Selective subscriptions retain their feed-first plan.
+            const globalOrder =
+                query.scope.type === 'all' && query.filter === 'all'
+                    ? checkGlobalOrder()
+                    : Effect.succeed(false);
+            const useGlobalOrder = yield* globalOrder;
             const fromWhere = `FROM entries e
-            JOIN feed_subscriptions fs ON fs.feed_id = e.feed_id
+            ${useGlobalOrder ? 'CROSS JOIN' : 'JOIN'} feed_subscriptions fs ON fs.feed_id = e.feed_id
             JOIN feeds f ON f.id = e.feed_id
             LEFT JOIN entry_interactions ei ON ei.user_id = fs.user_id AND ei.entry_id = e.id
             WHERE ${scope.clause} AND ei.filtered_at IS NULL AND ${filterSql(query.filter)}${range.clause}`;
@@ -536,20 +556,16 @@ export const makeReaderRepository = (d1: D1): ReaderRepository => ({
             const cursorClause =
                 query.cursor === null
                     ? ''
-                    : ` AND (${orderColumn} < ? OR (${orderColumn} = ? AND e.id < ?))`;
+                    : ` AND (${orderColumn}, e.id) < (?, ?)`;
             const cursorBindings =
                 query.cursor === null
                     ? []
-                    : [
-                          query.cursor.orderValue,
-                          query.cursor.orderValue,
-                          query.cursor.id,
-                      ];
+                    : [query.cursor.orderValue, query.cursor.id];
             const results = yield* withStorageError(
                 operation,
                 d1.batch([
                     {
-                        sql: `SELECT COUNT(*) AS total ${fromWhere}`,
+                        sql: `SELECT COUNT(*) AS total ${fromWhere.replace('CROSS JOIN', 'JOIN')}`,
                         bindings: whereBindings,
                     },
                     {

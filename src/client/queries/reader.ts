@@ -5,10 +5,12 @@ import {
     queryOptions,
 } from '@tanstack/react-query';
 import type {
+    ReaderCounts,
     ReaderEntry,
     ReaderEntryListInput,
     ReaderEntryPage,
     ReaderInteraction,
+    ReaderSubscriptionList,
 } from '../api/reader';
 import {
     fetchReaderJson,
@@ -151,10 +153,153 @@ function patchEntry<A extends ReaderEntryPage['entries'][number]>(
     };
 }
 
+// A new network result starts a new baseline. Local counter patches retain
+// the original baseline so simultaneous changes to different entries can add up.
+const counterBaselines = new WeakMap<object, object>();
+const baseline = (value: object) => counterBaselines.get(value) ?? value;
+type CachedEntry = Pick<ReaderEntry, 'id' | 'feedId' | 'read' | 'starred'>;
+export interface ReaderCounterSnapshot {
+    readonly entry?: CachedEntry;
+    readonly counts?: object;
+    readonly subscriptions?: object;
+}
+interface ReconciledCounters {
+    readonly counts: boolean;
+    readonly subscriptions: boolean;
+}
+const settledData = <T extends object>(
+    client: QueryClient,
+    key: readonly unknown[],
+): T | undefined => {
+    const state = client.getQueryState<T>(key);
+    return state?.fetchStatus === 'idle' && !state.isInvalidated
+        ? state.data
+        : undefined;
+};
+const cachedEntry = (
+    client: QueryClient,
+    entryId: number,
+): CachedEntry | undefined =>
+    client.getQueryData<ReaderEntry>(entryKeys.detail(entryId)) ??
+    client
+        .getQueriesData<InfiniteData<ReaderEntryPage>>({
+            queryKey: entryKeys.lists(),
+        })
+        .flatMap(
+            ([, data]) => data?.pages.flatMap((page) => page.entries) ?? [],
+        )
+        .find((entry) => entry.id === entryId);
+
+export function captureReaderCounterSnapshot(
+    client: QueryClient,
+    entryId: number,
+): ReaderCounterSnapshot {
+    const entry = cachedEntry(client, entryId);
+    const counts = settledData<ReaderCounts>(client, readerKeys.counts());
+    const subscriptions = settledData<ReaderSubscriptionList>(
+        client,
+        subscriptionKeys.list(),
+    );
+    return {
+        entry:
+            entry === undefined
+                ? undefined
+                : {
+                      id: entry.id,
+                      feedId: entry.feedId,
+                      read: entry.read,
+                      starred: entry.starred,
+                  },
+        counts: counts && baseline(counts),
+        subscriptions: subscriptions && baseline(subscriptions),
+    };
+}
+
+const reconcileCounters = (
+    client: QueryClient,
+    interaction: ReaderInteraction,
+    snapshot?: ReaderCounterSnapshot,
+): ReconciledCounters => {
+    const before = snapshot?.entry;
+    const current = cachedEntry(client, interaction.entryId);
+    if (
+        before === undefined ||
+        current === undefined ||
+        before.id !== interaction.entryId ||
+        before.feedId !== interaction.feedId ||
+        current.feedId !== before.feedId ||
+        current.read !== before.read ||
+        current.starred !== before.starred
+    ) {
+        return { counts: false, subscriptions: false };
+    }
+    const readDelta = Number(interaction.read) - Number(before.read);
+    const starDelta = Number(interaction.starred) - Number(before.starred);
+    const counts = settledData<ReaderCounts>(client, readerKeys.counts());
+    const subscriptions = settledData<ReaderSubscriptionList>(
+        client,
+        subscriptionKeys.list(),
+    );
+    let countsPatched = false;
+    let subscriptionsPatched = false;
+    if (counts && baseline(counts) === snapshot?.counts) {
+        const next = {
+            ...counts,
+            read: counts.read + readDelta,
+            unread: counts.unread - readDelta,
+            starred: counts.starred + starDelta,
+        };
+        if (
+            Object.values(next).every(
+                (value) => Number.isSafeInteger(value) && value >= 0,
+            ) &&
+            next.read + next.unread === next.total &&
+            next.starred <= next.total
+        ) {
+            const saved = client.setQueryData(readerKeys.counts(), next, {
+                updatedAt: client.getQueryState(readerKeys.counts())
+                    ?.dataUpdatedAt,
+            });
+            if (saved) counterBaselines.set(saved, baseline(counts));
+            countsPatched = true;
+        }
+    }
+    if (subscriptions && baseline(subscriptions) === snapshot?.subscriptions) {
+        const feed = subscriptions.subscriptions.find(
+            (feed) => feed.feedId === interaction.feedId,
+        );
+        const unread = feed === undefined ? -1 : feed.unreadCount - readDelta;
+        if (
+            feed &&
+            Number.isSafeInteger(unread) &&
+            unread >= 0 &&
+            unread <= feed.totalCount
+        ) {
+            const next = {
+                ...subscriptions,
+                subscriptions: subscriptions.subscriptions.map((row) =>
+                    row.feedId === interaction.feedId
+                        ? { ...row, unreadCount: unread }
+                        : row,
+                ),
+            };
+            const saved = client.setQueryData(subscriptionKeys.list(), next, {
+                updatedAt: client.getQueryState(subscriptionKeys.list())
+                    ?.dataUpdatedAt,
+            });
+            if (saved) counterBaselines.set(saved, baseline(subscriptions));
+            subscriptionsPatched = true;
+        }
+    }
+    return { counts: countsPatched, subscriptions: subscriptionsPatched };
+};
+
 export function reconcileReaderInteraction(
     queryClient: QueryClient,
     interaction: ReaderInteraction,
-): void {
+    snapshot?: ReaderCounterSnapshot,
+): ReconciledCounters {
+    const counters = reconcileCounters(queryClient, interaction, snapshot);
     queryClient.setQueryData<ReaderEntry>(
         entryKeys.detail(interaction.entryId),
         (current) =>
@@ -186,17 +331,27 @@ export function reconcileReaderInteraction(
                       })),
                   },
     );
+    return counters;
 }
 
 export async function invalidateReaderAfterInteraction(
     queryClient: QueryClient,
+    reconciled: ReconciledCounters = { counts: false, subscriptions: false },
 ): Promise<void> {
     await Promise.all([
         // The authoritative interaction response already patches all retained
         // pages. Keeping them fresh avoids removing the selected unread or
         // favorite entry while the user reads through the current page.
-        queryClient.invalidateQueries({ queryKey: readerKeys.counts() }),
-        queryClient.invalidateQueries({ queryKey: subscriptionKeys.lists() }),
+        ...(!reconciled.counts
+            ? [queryClient.invalidateQueries({ queryKey: readerKeys.counts() })]
+            : []),
+        ...(!reconciled.subscriptions
+            ? [
+                  queryClient.invalidateQueries({
+                      queryKey: subscriptionKeys.lists(),
+                  }),
+              ]
+            : []),
     ]);
 }
 

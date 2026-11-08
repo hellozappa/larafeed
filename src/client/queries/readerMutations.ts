@@ -15,6 +15,7 @@ import {
     setEntryStarred,
 } from '../api/reader';
 import {
+    captureReaderCounterSnapshot,
     entryKeys,
     invalidateReaderAfterInteraction,
     invalidateReaderAfterReadThrough,
@@ -76,9 +77,14 @@ export function entryReadMutationOptions(
                     csrfToken: requireCsrfToken(),
                 }),
             ),
-        onSuccess: async (interaction) => {
-            reconcileReaderInteraction(queryClient, interaction);
-            await invalidateReaderAfterInteraction(queryClient);
+        onMutate: () => captureReaderCounterSnapshot(queryClient, entryId),
+        onSuccess: async (interaction, _variables, snapshot) => {
+            const counters = reconcileReaderInteraction(
+                queryClient,
+                interaction,
+                snapshot,
+            );
+            await invalidateReaderAfterInteraction(queryClient, counters);
         },
     });
 }
@@ -99,9 +105,14 @@ export function entryStarMutationOptions(
                     csrfToken: requireCsrfToken(),
                 }),
             ),
-        onSuccess: async (interaction) => {
-            reconcileReaderInteraction(queryClient, interaction);
-            await invalidateReaderAfterInteraction(queryClient);
+        onMutate: () => captureReaderCounterSnapshot(queryClient, entryId),
+        onSuccess: async (interaction, _variables, snapshot) => {
+            const counters = reconcileReaderInteraction(
+                queryClient,
+                interaction,
+                snapshot,
+            );
+            await invalidateReaderAfterInteraction(queryClient, counters);
         },
     });
 }
@@ -122,9 +133,14 @@ export function entryArchiveMutationOptions(
                     csrfToken: requireCsrfToken(),
                 }),
             ),
-        onSuccess: async (interaction) => {
-            reconcileReaderInteraction(queryClient, interaction);
-            await invalidateReaderAfterInteraction(queryClient);
+        onMutate: () => captureReaderCounterSnapshot(queryClient, entryId),
+        onSuccess: async (interaction, _variables, snapshot) => {
+            const counters = reconcileReaderInteraction(
+                queryClient,
+                interaction,
+                snapshot,
+            );
+            await invalidateReaderAfterInteraction(queryClient, counters);
         },
     });
 }

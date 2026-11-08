@@ -166,3 +166,14 @@ UPDATE entries SET search_indexed_at = NULL;
 ```
 
 Cloudflare cannot `wrangler d1 export` a database that contains virtual tables such as `entry_search`. Use Time Travel for recovery, and the app's OPML export for subscriptions.
+
+
+## Reader query costs and full-article preferences
+
+Ordinary read, star and archive commands use their confirmed response to update known reader counters locally. If a counter request is in flight, a baseline changed or cached state is unavailable, the client refetches authoritative counters. Local patches preserve the original freshness timestamp, so they do not postpone normal focus refreshes indefinitely. Bulk read-through commands still invalidate totals and lists.
+
+Global unfiltered article pages use the existing ordering index when the reader subscribes to every stored feed. An indexed coverage check protects readers with selective subscriptions, which retain their feed-first plan. Row-value cursors seek into the timestamp/ID index for deep pages. Exact filtered totals remain a separate count query; this change does not eliminate that cost or guarantee any daily usage total. No history is deleted and no schema migration is needed.
+
+The reader caches management metadata for five minutes and does not reload it on window focus. Opening a feed-actions menu checks the metadata with a 15-second freshness window. Explicit feed-management mutations still invalidate their read models. This reduces repeated history/count queries during ordinary reading; refresh-status tooltips may remain cached until a management action or reload.
+
+Choosing **Fetch the full article** remembers that choice for the feed in this browser. Opening another article from that feed uses the existing full-content fetch and cache. Choosing the feed version remembers the opposite preference. New feeds default to feed text. Preferences do not synchronize between browsers. If browser storage is blocked, the choice lasts for the current session. Opening an article is the fetch trigger; enabling the preference does not fetch every article in the feed in the background.

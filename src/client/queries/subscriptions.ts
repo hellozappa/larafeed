@@ -58,6 +58,14 @@ export const subscriptionManagementQueryOptions = queryOptions({
     retry: false,
 });
 
+// The reader needs management metadata for feed actions, but ordinary focus
+// changes must not repeatedly fetch every feed's history and exact counts.
+export const readerManagementQueryOptions = queryOptions({
+    ...subscriptionManagementQueryOptions,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+});
+
 function requireCsrfToken(): string {
     const csrfToken = readCsrfToken();
     if (csrfToken === undefined) {

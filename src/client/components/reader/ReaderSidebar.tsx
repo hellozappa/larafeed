@@ -74,9 +74,9 @@ import {
     createCategoryMutationOptions,
     createSubscriptionMutationOptions,
     deleteCategoryMutationOptions,
+    readerManagementQueryOptions,
     refreshFaviconMutationOptions,
     refreshSubscriptionMutationOptions,
-    subscriptionManagementQueryOptions,
     unsubscribeMutationOptions,
     updateCategoryMutationOptions,
     updateSubscriptionMutationOptions,
@@ -810,6 +810,14 @@ export function FeedActions({
                     </Badge>
                 )}
                 <Menu
+                    onOpen={() => {
+                        void queryClient
+                            .fetchQuery({
+                                ...readerManagementQueryOptions,
+                                staleTime: 15_000,
+                            })
+                            .catch(() => undefined);
+                    }}
                     classNames={{
                         dropdown: classes.managementMenuDropdown,
                         item: classes.managementMenuItem,
@@ -1218,7 +1226,7 @@ export function ReaderSidebar({
         string | null
     >(null);
     const normalizedSearch = search.trim().toLocaleLowerCase();
-    const management = useQuery(subscriptionManagementQueryOptions);
+    const management = useQuery(readerManagementQueryOptions);
     const displayedError = error ?? management.error;
 
     useEffect(() => {
