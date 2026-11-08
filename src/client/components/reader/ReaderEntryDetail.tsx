@@ -55,6 +55,7 @@ import {
     entrySummaryQueryOptions,
     generateEntrySummaryMutationOptions,
 } from '../../queries/summaries';
+import { ArticleContent } from './ArticleContent';
 import { externalizeArticleLinks } from './articleHtml';
 import { FeedFavicon } from './FeedFavicon';
 import classes from './Reader.module.css';
@@ -210,10 +211,10 @@ function ReaderEntryFullContent({ entryId }: { readonly entryId: number }) {
     }
 
     return (
-        <div
-            className={classes.articleContent}
-            // Full article HTML is sanitized by the Worker before storage.
-            dangerouslySetInnerHTML={{ __html: fullHtml ?? '' }}
+        <ArticleContent
+            html={fullHtml ?? ''}
+            key={entryId}
+            originalUrl={fullContent.sourceUrl}
         />
     );
 }
@@ -882,12 +883,10 @@ export function ReaderEntryDetail({
                                     </Stack>
                                 </Alert>
                             ) : (
-                                <div
-                                    className={classes.articleContent}
-                                    // Content is sanitized before persistence by the Worker.
-                                    dangerouslySetInnerHTML={{
-                                        __html: articleHtml ?? '',
-                                    }}
+                                <ArticleContent
+                                    html={articleHtml ?? ''}
+                                    key={entry.id}
+                                    originalUrl={entry.url}
                                 />
                             )}
                         </div>

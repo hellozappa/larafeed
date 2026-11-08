@@ -116,6 +116,12 @@ Both keys are required when enabled. Passkey rate limiting and exact-origin chec
 
 Set `IMAGES_ENABLED=true` to enable ownership-checked article image transforms. Also set `FAVICON_REFRESH_ENABLED=true` to discover and normalize favicons. Bitmap favicons are normalized to 32×32 PNGs. SVG favicons pass through a strict local allowlist sanitizer and are stored separately with sandboxed delivery headers. Favicons are stored in D1; Larafeed does not require R2.
 
+This fork enables `IMAGES_ENABLED` in both deployment configurations and keeps favicon discovery disabled. The shipped `img-src 'self' data:` policy requires the proxy for publisher images. Disabling the proxy leaves source URLs in article responses, which that policy blocks. Cached full articles are rewritten when returned, so enabling the proxy needs no reimport, cache deletion or migration.
+
+Cloudflare Images Free includes 5,000 unique transformations per calendar month. New transformations fail after the allowance is exhausted; cached transformations may continue serving. Free does not charge overages automatically. Larafeed uses one article size preset and caches successful transformations. Failed article images return an uncached error and the reader offers a link to the original article. The message does not identify the cause as quota exhaustion because publisher and network failures can produce the same result. See [Images pricing](https://developers.cloudflare.com/images/pricing/).
+
+The account's built-in Images exhaustion notification is enabled. It reports exhaustion and does not provide an advance warning at 4,500. After deployment, verify a signed-in reader can load `/api/images/entries/22220/full/1` and display the saved NBC full article. Local tests and a deployment dry run do not verify the production Images service or email delivery.
+
 Migration `0018_favicon_svg_assets.sql` supports a safe Worker rollback. An older Worker treats SVG-backed hashes as missing, so the client shows its RSS fallback icon. Redeploy an SVG-aware Worker to restore those favicons; do not drop the SVG table during a routine rollback.
 
 ### AI summaries

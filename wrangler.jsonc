@@ -25,7 +25,7 @@
         "REFRESH_DUE_LIMIT": "5",
         "OPML_IMPORT_ENABLED": "true",
         "FAVICON_REFRESH_ENABLED": "false",
-        "IMAGES_ENABLED": "false",
+        "IMAGES_ENABLED": "true",
         "FEED_REFRESH_QUEUE_NAME": "larafeed-template-feed-refresh",
         "OPML_IMPORT_QUEUE_NAME": "larafeed-template-opml-import",
         "FAVICON_REFRESH_QUEUE_NAME": "larafeed-template-favicon-refresh"
@@ -151,7 +151,7 @@
                 "REFRESH_DUE_LIMIT": "5",
                 "OPML_IMPORT_ENABLED": "true",
                 "FAVICON_REFRESH_ENABLED": "false",
-                "IMAGES_ENABLED": "false",
+                "IMAGES_ENABLED": "true",
                 "FEED_REFRESH_QUEUE_NAME": "larafeed-template-feed-refresh",
                 "OPML_IMPORT_QUEUE_NAME": "larafeed-template-opml-import",
                 "FAVICON_REFRESH_QUEUE_NAME": "larafeed-template-favicon-refresh"
