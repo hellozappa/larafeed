@@ -1,5 +1,6 @@
 import {
     type InfiniteData,
+    MutationObserver,
     QueryClient,
     QueryObserver,
 } from '@tanstack/react-query';
@@ -11,6 +12,7 @@ import type {
     ReaderInteraction,
 } from '../api/reader';
 import {
+    captureReaderCounterSnapshot,
     categoryKeys,
     categoryListQueryOptions,
     entryKeys,
@@ -238,5 +240,241 @@ describe('reader query contracts', () => {
         expect(starOptions.scope).toEqual(readOptions.scope);
         expect(anotherEntry.scope).toEqual({ id: 'reader-entry-8' });
         expect(readOptions.retry).toBe(false);
+    });
+});
+
+describe('reader counter reconciliation', () => {
+    const seed = () => {
+        const client = new QueryClient({
+            defaultOptions: { queries: { retry: false } },
+        });
+        client.setQueryData(entryKeys.detail(7), detail);
+        client.setQueryData(
+            readerKeys.counts(),
+            { total: 2, read: 0, unread: 2, starred: 0 },
+            { updatedAt: 100 },
+        );
+        client.setQueryData(
+            subscriptionKeys.list(),
+            { subscriptions: [{ feedId: 3, totalCount: 2, unreadCount: 2 }] },
+            { updatedAt: 100 },
+        );
+        return client;
+    };
+
+    it('does not request counter endpoints after a successful read mutation with known baselines', async () => {
+        vi.stubGlobal('document', { cookie: 'larafeed-csrf=csrf-token' });
+        const fetch = vi.fn(() => Promise.resolve(Response.json(interaction)));
+        vi.stubGlobal('fetch', fetch);
+        const client = seed();
+        const observer = new MutationObserver(
+            client,
+            entryReadMutationOptions(client, 7),
+        );
+        await observer.mutate(true);
+        expect(fetch).toHaveBeenCalledTimes(1);
+        expect(client.getQueryData(readerKeys.counts())).toMatchObject({
+            read: 1,
+            unread: 1,
+            starred: 1,
+        });
+        expect(client.getQueryState(readerKeys.counts())?.isInvalidated).toBe(
+            false,
+        );
+    });
+
+    it('updates known counters without rescanning and preserves their refresh age', async () => {
+        const client = seed();
+        const snapshot = captureReaderCounterSnapshot(client, 7);
+        const patched = reconcileReaderInteraction(
+            client,
+            interaction,
+            snapshot,
+        );
+        await invalidateReaderAfterInteraction(client, patched);
+        expect(client.getQueryData(readerKeys.counts())).toEqual({
+            total: 2,
+            read: 1,
+            unread: 1,
+            starred: 1,
+        });
+        expect(client.getQueryData(subscriptionKeys.list())).toMatchObject({
+            subscriptions: [{ unreadCount: 1 }],
+        });
+        expect(client.getQueryState(readerKeys.counts())?.isInvalidated).toBe(
+            false,
+        );
+        expect(
+            client.getQueryState(subscriptionKeys.list())?.isInvalidated,
+        ).toBe(false);
+        expect(client.getQueryState(readerKeys.counts())?.dataUpdatedAt).toBe(
+            100,
+        );
+        const noOp = reconcileReaderInteraction(
+            client,
+            interaction,
+            captureReaderCounterSnapshot(client, 7),
+        );
+        expect(noOp).toEqual({ counts: true, subscriptions: true });
+        expect(client.getQueryData(readerKeys.counts())).toMatchObject({
+            read: 1,
+            starred: 1,
+        });
+    });
+
+    it('combines overlapping changes to different articles from the same counter baseline', () => {
+        const client = seed();
+        client.setQueryData(entryKeys.detail(8), { ...detail, id: 8 });
+        const first = captureReaderCounterSnapshot(client, 7);
+        const second = captureReaderCounterSnapshot(client, 8);
+        expect(reconcileReaderInteraction(client, interaction, first)).toEqual({
+            counts: true,
+            subscriptions: true,
+        });
+        expect(
+            reconcileReaderInteraction(
+                client,
+                { ...interaction, entryId: 8, starred: false, starredAt: null },
+                second,
+            ),
+        ).toEqual({ counts: true, subscriptions: true });
+        expect(client.getQueryData(readerKeys.counts())).toEqual({
+            total: 2,
+            read: 2,
+            unread: 0,
+            starred: 1,
+        });
+        expect(client.getQueryData(subscriptionKeys.list())).toMatchObject({
+            subscriptions: [{ unreadCount: 0 }],
+        });
+    });
+
+    it('refetches counters that received a new baseline during the mutation', async () => {
+        const client = seed();
+        const snapshot = captureReaderCounterSnapshot(client, 7);
+        client.setQueryData(readerKeys.counts(), {
+            total: 3,
+            read: 1,
+            unread: 2,
+            starred: 0,
+        });
+        const patched = reconcileReaderInteraction(
+            client,
+            interaction,
+            snapshot,
+        );
+        expect(patched.counts).toBe(false);
+        await invalidateReaderAfterInteraction(client, patched);
+        expect(client.getQueryData(readerKeys.counts())).toEqual({
+            total: 3,
+            read: 1,
+            unread: 2,
+            starred: 0,
+        });
+        expect(client.getQueryState(readerKeys.counts())?.isInvalidated).toBe(
+            true,
+        );
+    });
+
+    it('handles unread, unstar and archive results without changing total article counts', () => {
+        const client = seed();
+        client.setQueryData(entryKeys.detail(7), {
+            ...detail,
+            read: true,
+            starred: true,
+        });
+        client.setQueryData(readerKeys.counts(), {
+            total: 2,
+            read: 1,
+            unread: 1,
+            starred: 1,
+        });
+        client.setQueryData(subscriptionKeys.list(), {
+            subscriptions: [{ feedId: 3, totalCount: 2, unreadCount: 1 }],
+        });
+        reconcileReaderInteraction(
+            client,
+            {
+                ...interaction,
+                read: false,
+                starred: false,
+                starredAt: null,
+                archived: true,
+                archivedAt: 1_900_000_002_000,
+            },
+            captureReaderCounterSnapshot(client, 7),
+        );
+        expect(client.getQueryData(readerKeys.counts())).toEqual({
+            total: 2,
+            read: 0,
+            unread: 2,
+            starred: 0,
+        });
+        expect(client.getQueryData(subscriptionKeys.list())).toMatchObject({
+            subscriptions: [{ totalCount: 2, unreadCount: 2 }],
+        });
+    });
+
+    it('does not patch counters while an authoritative request is in flight', async () => {
+        const client = seed();
+        let resolve:
+            | ((value: {
+                  total: number;
+                  read: number;
+                  unread: number;
+                  starred: number;
+              }) => void)
+            | undefined;
+        const request = client.fetchQuery({
+            queryKey: readerKeys.counts(),
+            queryFn: () =>
+                new Promise<{
+                    total: number;
+                    read: number;
+                    unread: number;
+                    starred: number;
+                }>((done) => {
+                    resolve = done;
+                }),
+        });
+        const snapshot = captureReaderCounterSnapshot(client, 7);
+        const patched = reconcileReaderInteraction(
+            client,
+            interaction,
+            snapshot,
+        );
+        expect(patched.counts).toBe(false);
+        resolve?.({ total: 2, read: 1, unread: 1, starred: 1 });
+        await request;
+        expect(client.getQueryData(readerKeys.counts())).toEqual({
+            total: 2,
+            read: 1,
+            unread: 1,
+            starred: 1,
+        });
+    });
+
+    it('refetches when article state changed or cached counts are missing', async () => {
+        const client = seed();
+        const snapshot = captureReaderCounterSnapshot(client, 7);
+        client.setQueryData(entryKeys.detail(7), { ...detail, read: true });
+        const patched = reconcileReaderInteraction(
+            client,
+            interaction,
+            snapshot,
+        );
+        expect(patched).toEqual({ counts: false, subscriptions: false });
+        await invalidateReaderAfterInteraction(client, patched);
+        expect(client.getQueryState(readerKeys.counts())?.isInvalidated).toBe(
+            true,
+        );
+        const empty = new QueryClient();
+        expect(
+            reconcileReaderInteraction(
+                empty,
+                interaction,
+                captureReaderCounterSnapshot(empty, 7),
+            ),
+        ).toEqual({ counts: false, subscriptions: false });
     });
 });

@@ -41,16 +41,17 @@ import {
     useQuery,
     useQueryClient,
 } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import type { ReaderEntry } from '../../api/reader';
+import { useFullArticlePreference } from '../../fullArticlePreference';
 import {
     entryFullContentQueryOptions,
     fetchEntryFullContentMutationOptions,
     fullContentKeys,
     summarizeEntryFullContentMutationOptions,
 } from '../../queries/fullContent';
-import { subscriptionManagementQueryOptions } from '../../queries/subscriptions';
+import { readerManagementQueryOptions } from '../../queries/subscriptions';
 import {
     entrySummaryQueryOptions,
     generateEntrySummaryMutationOptions,
@@ -406,7 +407,7 @@ export function ReaderEntryDetail({
     onSetArchived,
 }: ReaderEntryDetailProps) {
     const theme = useMantineTheme();
-    const management = useQuery(subscriptionManagementQueryOptions);
+    const management = useQuery(readerManagementQueryOptions);
     const managedSubscription = management.data?.subscriptions.find(
         (subscription) => subscription.feedId === entry?.feedId,
     );
@@ -432,12 +433,13 @@ export function ReaderEntryDetail({
         [entry?.contentHtml],
     );
 
-    const [fullArticle, setFullArticle] = useState(false);
+    const [fullArticle, setFullArticle] = useFullArticlePreference(
+        entry?.feedId,
+    );
 
     const entryId = entry?.id;
     useEffect(() => {
         if (entryId === undefined) return;
-        setFullArticle(false);
         scrollToTop();
     }, [entryId, scrollToTop]);
 
@@ -602,8 +604,8 @@ export function ReaderEntryDetail({
                                     <Tooltip
                                         label={
                                             fullArticle
-                                                ? 'Show the feed version'
-                                                : 'Fetch the full article'
+                                                ? 'Show feed text for this feed'
+                                                : 'Fetch full articles automatically for this feed'
                                         }
                                     >
                                         <ActionIcon
@@ -854,7 +856,10 @@ export function ReaderEntryDetail({
 
                         <div hidden={summarize}>
                             {fullArticle && entry.url !== null ? (
-                                <ReaderEntryFullContent entryId={entry.id} />
+                                <ReaderEntryFullContent
+                                    key={entry.id}
+                                    entryId={entry.id}
+                                />
                             ) : entry.contentHtml === null ||
                               entry.contentHtml.trim().length === 0 ? (
                                 <Alert color="gray" title="No article content">
@@ -938,6 +943,7 @@ export function ReaderEntryDetail({
                             {summarize &&
                                 (fullArticle && entry.url !== null ? (
                                     <ReaderEntryFullSummary
+                                        key={entry.id}
                                         entryId={entry.id}
                                     />
                                 ) : (

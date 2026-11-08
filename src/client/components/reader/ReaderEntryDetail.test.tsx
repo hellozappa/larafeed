@@ -1,9 +1,13 @@
 import { MantineProvider } from '@mantine/core';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { parseHTML } from 'linkedom';
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { ReaderEntry } from '../../api/reader';
+import { fullArticlePreferenceKey } from '../../fullArticlePreference';
 import { subscriptionManagementKeys } from '../../queries/subscriptions';
 import { summaryKeys } from '../../queries/summaries';
 import { ReaderEntryDetail } from './ReaderEntryDetail';
@@ -93,6 +97,116 @@ const renderDetail = (summary?: unknown, summarize = false): string => {
         </QueryClientProvider>,
     );
 };
+
+it('fetches consecutive articles when the feed prefers full text', async () => {
+    const { window } = parseHTML('<!doctype html><html><body></body></html>');
+    window.HTMLElement.prototype.scrollTo = vi.fn();
+    Object.defineProperty(window, 'localStorage', {
+        configurable: true,
+        value: {
+            getItem: (key: string) =>
+                key === fullArticlePreferenceKey(entry.feedId) ? 'true' : null,
+        },
+    });
+    window.document.cookie = 'larafeed-csrf=token';
+    vi.stubGlobal('window', window);
+    vi.stubGlobal('document', window.document);
+    vi.stubGlobal('Element', window.Element);
+    vi.stubGlobal('HTMLElement', window.HTMLElement);
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
+        setTimeout(() => callback(performance.now()), 0),
+    );
+    vi.stubGlobal('cancelAnimationFrame', clearTimeout);
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    window.matchMedia = vi.fn().mockReturnValue({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal(
+        'ResizeObserver',
+        class {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        },
+    );
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+        const id = Number(url.match(/entries\/(\d+)/)?.[1]);
+        return Promise.resolve(
+            Response.json({
+                fullContent:
+                    init?.method === 'POST'
+                        ? {
+                              entryId: id,
+                              html: `<p>Full text ${id}</p>`,
+                              sourceUrl: entry.url,
+                              fetchedAt: 1_900_000_000_000,
+                              summary: null,
+                          }
+                        : null,
+            }),
+        );
+    });
+    vi.stubGlobal('fetch', fetch);
+    const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(subscriptionManagementKeys.list(), {
+        categories: [],
+        subscriptions: [managedSubscription],
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const render = (id: number) =>
+        root.render(
+            <QueryClientProvider client={client}>
+                <MantineProvider env="test">
+                    <ReaderEntryDetail
+                        archivePending={false}
+                        entry={{ ...entry, id }}
+                        error={null}
+                        isFetching={false}
+                        isPending={false}
+                        mutationError={null}
+                        onBack={() => undefined}
+                        onRetry={() => undefined}
+                        onSetArchived={() => undefined}
+                        onSetRead={() => undefined}
+                        onSetStarred={() => undefined}
+                        onSetSummarize={() => undefined}
+                        readPending={false}
+                        selected
+                        starPending={false}
+                        summarize={false}
+                    />
+                </MantineProvider>
+            </QueryClientProvider>,
+        );
+    try {
+        for (const id of [31, 32]) {
+            await act(() => render(id));
+            await act(async () => {
+                await vi.waitFor(() =>
+                    expect(container.textContent).toContain(`Full text ${id}`),
+                );
+            });
+        }
+        expect(
+            fetch.mock.calls
+                .filter(([, init]) => init?.method === 'POST')
+                .map(([url]) => url),
+        ).toEqual([
+            '/api/entries/31/full-content',
+            '/api/entries/32/full-content',
+        ]);
+    } finally {
+        await act(() => root.unmount());
+        client.clear();
+        vi.unstubAllGlobals();
+    }
+});
 
 describe('ReaderEntryDetail summaries', () => {
     it('renders cached sanitized summary HTML without regeneration', () => {
