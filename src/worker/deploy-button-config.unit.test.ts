@@ -15,6 +15,7 @@ interface DeploymentEnvironment {
     readonly name?: string;
     readonly workers_dev?: boolean;
     readonly preview_urls?: boolean;
+    readonly images?: { readonly binding: string };
     readonly placement?: { readonly mode?: string };
     readonly secrets?: { readonly required?: readonly string[] };
     readonly vars?: Readonly<Record<string, string>>;
@@ -77,9 +78,22 @@ describe('Deploy-to-Cloudflare configuration', () => {
             REFRESH_DISPATCH_ENABLED: 'true',
             OPML_IMPORT_ENABLED: 'true',
             FAVICON_REFRESH_ENABLED: 'false',
-            IMAGES_ENABLED: 'false',
+            IMAGES_ENABLED: 'true',
             AI_SUMMARY_ENABLED: 'false',
         });
+    });
+
+    it('serves article images through the proxy under the shipped security policy', () => {
+        const headers = readFileSync(
+            new URL('../../public/_headers', import.meta.url),
+            'utf8',
+        );
+        expect(headers).toContain("img-src 'self' data:;");
+        for (const deployment of [wrangler, wrangler.env?.production]) {
+            expect(deployment?.vars?.IMAGES_ENABLED).toBe('true');
+            expect(deployment?.images).toEqual({ binding: 'IMAGES' });
+            expect(deployment?.vars?.FAVICON_REFRESH_ENABLED).toBe('false');
+        }
     });
 
     it('keeps login limits strict and allows compatibility sync bursts', () => {

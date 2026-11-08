@@ -46,6 +46,63 @@ const request = {
 };
 
 describe('article image route', () => {
+    it('returns an opaque uncached error for feed and full-content image failures', async () => {
+        const runtime = {
+            auth,
+            repository: {
+                findOwnedFeedSource: () => Effect.succeed(null),
+                findOwnedArticleSource: () =>
+                    Effect.succeed({
+                        contentHtml:
+                            '<img src="https://private.example.test/photo.png">',
+                        entryUrl: 'https://publisher.example.test/article',
+                    }),
+            },
+            fullContent: {
+                repository: {
+                    findOwnedEntry: () =>
+                        Effect.succeed({
+                            entryId: 41,
+                            title: 'Article',
+                            url: 'https://publisher.example.test/article',
+                        }),
+                },
+                store: {
+                    load: () =>
+                        Effect.succeed({
+                            version: 1 as const,
+                            entryId: 41,
+                            sourceUrl: 'https://publisher.example.test/article',
+                            fetchedAt: 1,
+                            html: '<img src="https://private.example.test/photo.png">',
+                            summary: null,
+                        }),
+                    save: () => Effect.void,
+                },
+            },
+            service: {
+                transformFeedImage: vi.fn(),
+                transformArticleImage: async () => {
+                    throw new Error('private upstream error 9422');
+                },
+            },
+            rateLimit: async () => ({ success: true }),
+        } satisfies ImageRuntime;
+
+        for (const path of [
+            '/api/images/entries/41/1',
+            '/api/images/entries/41/full/1',
+        ]) {
+            const response = await app(runtime).request(path, request);
+            expect(response.status).toBe(502);
+            expect(response.headers.get('cache-control')).toBe(
+                'private, no-store',
+            );
+            expect(response.headers.get('content-type')).toBeNull();
+            expect(await response.text()).toBe('');
+        }
+    });
+
     it('resolves only the indexed source from owned article content', async () => {
         const transformArticleImage = vi.fn(
             async () =>

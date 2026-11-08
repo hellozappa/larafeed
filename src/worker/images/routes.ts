@@ -35,14 +35,6 @@ const PRIVATE_IMAGE_HEADERS = {
 } as const;
 const ARTICLE_IMAGE_CACHE_CONTROL = 'private, max-age=86400';
 
-// Fixed transparent PNG. Upstream failures never disclose source details.
-const PLACEHOLDER_BYTES = Uint8Array.from(
-    atob(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-    ),
-    (character) => character.charCodeAt(0),
-);
-
 interface ImageBindingEnv {
     readonly IMAGES: ImagesBinding;
 }
@@ -116,15 +108,9 @@ export const defaultImageRuntimeFactory: ImageRuntimeFactory = (env) => {
     );
 };
 
-const placeholderResponse = (): Response =>
-    new Response(PLACEHOLDER_BYTES, {
-        status: 200,
-        headers: {
-            ...PRIVATE_IMAGE_HEADERS,
-            'content-length': String(PLACEHOLDER_BYTES.byteLength),
-            'content-type': 'image/png',
-        },
-    });
+// A failed article image must trigger the reader's image error message.
+const unavailableArticleImageResponse = (): Response =>
+    new Response(null, { status: 502, headers: PRIVATE_IMAGE_HEADERS });
 
 // A non-success response activates FeedFavicon's existing RSS fallback.
 const unavailableFeedImageResponse = (): Response =>
@@ -179,7 +165,7 @@ const transformedResponse = (
         contentType === null ||
         !/^image\/(?:avif|webp|png)(?:;|$)/iu.test(contentType)
     ) {
-        return (options.unavailable ?? placeholderResponse)();
+        return (options.unavailable ?? unavailableArticleImageResponse)();
     }
     return new Response(source.body, {
         status: 200,
@@ -354,14 +340,15 @@ export const registerImageRoutes = (
                     fullContent.store.load(entryId),
                     { signal: context.req.raw.signal },
                 );
-                if (record === null) return placeholderResponse();
+                if (record === null) return unavailableArticleImageResponse();
 
                 const sourceUrl = await findArticleImageSource(
                     record.html,
                     record.sourceUrl,
                     imageIndex,
                 );
-                if (sourceUrl === null) return placeholderResponse();
+                if (sourceUrl === null)
+                    return unavailableArticleImageResponse();
 
                 return transformedResponse(
                     await runtime.service.transformArticleImage({
@@ -371,7 +358,7 @@ export const registerImageRoutes = (
                     { cacheControl: ARTICLE_IMAGE_CACHE_CONTROL },
                 );
             } catch {
-                return placeholderResponse();
+                return unavailableArticleImageResponse();
             }
         },
     );
@@ -446,7 +433,7 @@ export const registerImageRoutes = (
                 article.entryUrl,
                 imageIndex,
             );
-            if (sourceUrl === null) return placeholderResponse();
+            if (sourceUrl === null) return unavailableArticleImageResponse();
 
             return transformedResponse(
                 await runtime.service.transformArticleImage({
@@ -456,7 +443,7 @@ export const registerImageRoutes = (
                 { cacheControl: ARTICLE_IMAGE_CACHE_CONTROL },
             );
         } catch {
-            return placeholderResponse();
+            return unavailableArticleImageResponse();
         }
     });
 
