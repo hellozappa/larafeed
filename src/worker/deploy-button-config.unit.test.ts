@@ -54,19 +54,21 @@ const secretTemplate = readFileSync(
 );
 
 describe('Deploy-to-Cloudflare configuration', () => {
-    it('keeps the portable endpoint separate from owner environments', () => {
+    it('keeps both deployment paths on the owner domain', () => {
         expect(wrangler).toMatchObject({
-            name: 'larafeed-template',
-            workers_dev: true,
-            preview_urls: true,
+            name: 'larafeed',
+            workers_dev: false,
+            preview_urls: false,
         });
-        expect(wrangler.routes).toBeUndefined();
+        expect(wrangler.routes).toEqual([
+            { pattern: 'news.chriszappa.com', custom_domain: true },
+        ]);
         expect(wrangler.placement).toEqual({ mode: 'smart' });
         expect(wrangler.env?.production).toMatchObject({
             name: 'larafeed',
             workers_dev: false,
             preview_urls: false,
-            routes: [{ pattern: 'larafeed.stanislas.cloud' }],
+            routes: [{ pattern: 'news.chriszappa.com' }],
         });
         expect(wrangler.env?.test).toBeUndefined();
         expect(wrangler.env?.production?.placement).toEqual({ mode: 'smart' });
@@ -74,9 +76,9 @@ describe('Deploy-to-Cloudflare configuration', () => {
             REFRESH_SCHEDULER_ENABLED: 'true',
             REFRESH_DISPATCH_ENABLED: 'true',
             OPML_IMPORT_ENABLED: 'true',
-            FAVICON_REFRESH_ENABLED: 'true',
-            IMAGES_ENABLED: 'true',
-            AI_SUMMARY_ENABLED: 'true',
+            FAVICON_REFRESH_ENABLED: 'false',
+            IMAGES_ENABLED: 'false',
+            AI_SUMMARY_ENABLED: 'false',
         });
     });
 
@@ -84,12 +86,12 @@ describe('Deploy-to-Cloudflare configuration', () => {
         expect(wrangler.env?.production?.ratelimits).toEqual([
             {
                 name: 'AUTH_RATE_LIMITER',
-                namespace_id: '1001',
+                namespace_id: '9001',
                 simple: { limit: 20, period: 60 },
             },
             {
                 name: 'COMPAT_RATE_LIMITER',
-                namespace_id: '2001',
+                namespace_id: '9002',
                 simple: { limit: 300, period: 60 },
             },
         ]);
