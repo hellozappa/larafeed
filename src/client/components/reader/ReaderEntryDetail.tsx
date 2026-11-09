@@ -44,7 +44,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import type { ReaderEntry } from '../../api/reader';
-import { useFullArticlePreference } from '../../fullArticlePreference';
+import { useFullArticleMode } from '../../fullArticleMode';
 import {
     entryFullContentQueryOptions,
     fetchEntryFullContentMutationOptions,
@@ -433,9 +433,7 @@ export function ReaderEntryDetail({
         [entry?.contentHtml],
     );
 
-    const [fullArticle, setFullArticle] = useFullArticlePreference(
-        entry?.feedId,
-    );
+    const [fullArticle, setFullArticle] = useFullArticleMode(entry?.id);
 
     const entryId = entry?.id;
     useEffect(() => {
@@ -604,8 +602,8 @@ export function ReaderEntryDetail({
                                     <Tooltip
                                         label={
                                             fullArticle
-                                                ? 'Show feed text for this feed'
-                                                : 'Fetch full articles automatically for this feed'
+                                                ? 'Show the feed version'
+                                                : 'Fetch the full article'
                                         }
                                     >
                                         <ActionIcon

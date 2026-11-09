@@ -7,9 +7,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ReaderEntry } from '../../api/reader';
-import { fullArticlePreferenceKey } from '../../fullArticlePreference';
+import type { EntrySummaryResult } from '../../api/summaries';
+import { fullContentKeys } from '../../queries/fullContent';
 import { subscriptionManagementKeys } from '../../queries/subscriptions';
-import { summaryKeys } from '../../queries/summaries';
 import { ReaderEntryDetail } from './ReaderEntryDetail';
 
 const entry: ReaderEntry = {
@@ -60,13 +60,22 @@ const managedSubscription = {
     refreshes: [],
 };
 
-const renderDetail = (summary?: unknown, summarize = false): string => {
+const renderDetail = (
+    summary?: EntrySummaryResult,
+    summarize = false,
+): string => {
     const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false } },
     });
-    if (summary !== undefined) {
-        queryClient.setQueryData(summaryKeys.detail(entry.id), summary);
-    }
+    queryClient.setQueryData(fullContentKeys.detail(entry.id), {
+        fullContent: {
+            entryId: entry.id,
+            html: '<p>Full article content.</p>',
+            sourceUrl: entry.url,
+            fetchedAt: 1_900_000_000_000,
+            summary: summary?.summary ?? null,
+        },
+    });
     queryClient.setQueryData(subscriptionManagementKeys.list(), {
         categories: [{ id: 1, name: 'Technology', subscriptionCount: 1 }],
         subscriptions: [managedSubscription],
@@ -98,115 +107,146 @@ const renderDetail = (summary?: unknown, summarize = false): string => {
     );
 };
 
-it('fetches consecutive articles when the feed prefers full text', async () => {
-    const { window } = parseHTML('<!doctype html><html><body></body></html>');
-    window.HTMLElement.prototype.scrollTo = vi.fn();
-    Object.defineProperty(window, 'localStorage', {
-        configurable: true,
-        value: {
-            getItem: (key: string) =>
-                key === fullArticlePreferenceKey(entry.feedId) ? 'true' : null,
-        },
-    });
-    window.document.cookie = 'larafeed-csrf=token';
-    vi.stubGlobal('window', window);
-    vi.stubGlobal('document', window.document);
-    vi.stubGlobal('Element', window.Element);
-    vi.stubGlobal('HTMLElement', window.HTMLElement);
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
-        setTimeout(() => callback(performance.now()), 0),
-    );
-    vi.stubGlobal('cancelAnimationFrame', clearTimeout);
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    window.matchMedia = vi.fn().mockReturnValue({
-        matches: false,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-    });
-    vi.stubGlobal(
-        'ResizeObserver',
-        class {
-            observe() {}
-            unobserve() {}
-            disconnect() {}
-        },
-    );
-    const fetch = vi.fn((url: string, init?: RequestInit) => {
-        const id = Number(url.match(/entries\/(\d+)/)?.[1]);
-        return Promise.resolve(
-            Response.json({
-                fullContent:
-                    init?.method === 'POST'
-                        ? {
-                              entryId: id,
-                              html: `<p>Full text ${id}</p>`,
-                              sourceUrl: entry.url,
-                              fetchedAt: 1_900_000_000_000,
-                              summary: null,
-                          }
-                        : null,
-            }),
+it.each(['fresh', 'legacy', 'blocked'] as const)(
+    'opens full articles across feeds without clicks with %s storage',
+    async (storage) => {
+        const { window } = parseHTML(
+            '<!doctype html><html><body></body></html>',
         );
-    });
-    vi.stubGlobal('fetch', fetch);
-    const client = new QueryClient({
-        defaultOptions: { queries: { retry: false } },
-    });
-    client.setQueryData(subscriptionManagementKeys.list(), {
-        categories: [],
-        subscriptions: [managedSubscription],
-    });
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    const render = (id: number) =>
-        root.render(
-            <QueryClientProvider client={client}>
-                <MantineProvider env="test">
-                    <ReaderEntryDetail
-                        archivePending={false}
-                        entry={{ ...entry, id }}
-                        error={null}
-                        isFetching={false}
-                        isPending={false}
-                        mutationError={null}
-                        onBack={() => undefined}
-                        onRetry={() => undefined}
-                        onSetArchived={() => undefined}
-                        onSetRead={() => undefined}
-                        onSetStarred={() => undefined}
-                        onSetSummarize={() => undefined}
-                        readPending={false}
-                        selected
-                        starPending={false}
-                        summarize={false}
-                    />
-                </MantineProvider>
-            </QueryClientProvider>,
+        window.HTMLElement.prototype.scrollTo = vi.fn();
+        const getItem = vi.fn(() => {
+            if (storage === 'blocked') throw new Error('Storage is blocked');
+            return storage === 'legacy' ? 'false' : null;
+        });
+        Object.defineProperty(window, 'localStorage', {
+            configurable: true,
+            value: { getItem },
+        });
+        window.document.cookie = 'larafeed-csrf=token';
+        vi.stubGlobal('window', window);
+        vi.stubGlobal('document', window.document);
+        vi.stubGlobal('Element', window.Element);
+        vi.stubGlobal('HTMLElement', window.HTMLElement);
+        vi.stubGlobal(
+            'requestAnimationFrame',
+            (callback: FrameRequestCallback) =>
+                setTimeout(() => callback(performance.now()), 0),
         );
-    try {
-        for (const id of [31, 32]) {
-            await act(() => render(id));
-            await act(async () => {
-                await vi.waitFor(() =>
-                    expect(container.textContent).toContain(`Full text ${id}`),
-                );
-            });
+        vi.stubGlobal('cancelAnimationFrame', clearTimeout);
+        vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+        window.matchMedia = vi.fn().mockReturnValue({
+            matches: false,
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+        });
+        vi.stubGlobal(
+            'ResizeObserver',
+            class {
+                observe() {}
+                unobserve() {}
+                disconnect() {}
+            },
+        );
+        const fetch = vi.fn((url: string, init?: RequestInit) => {
+            const id = Number(url.match(/entries\/(\d+)/)?.[1]);
+            return Promise.resolve(
+                Response.json({
+                    fullContent:
+                        init?.method === 'POST'
+                            ? {
+                                  entryId: id,
+                                  html: `<p>Full text ${id}</p>`,
+                                  sourceUrl: entry.url,
+                                  fetchedAt: 1_900_000_000_000,
+                                  summary: null,
+                              }
+                            : null,
+                }),
+            );
+        });
+        vi.stubGlobal('fetch', fetch);
+        const client = new QueryClient({
+            defaultOptions: { queries: { retry: false } },
+        });
+        client.setQueryData(subscriptionManagementKeys.list(), {
+            categories: [],
+            subscriptions: [managedSubscription],
+        });
+        const container = document.createElement('div');
+        document.body.appendChild(container);
+        const root = createRoot(container);
+        const render = (id: number) =>
+            root.render(
+                <QueryClientProvider client={client}>
+                    <MantineProvider env="test">
+                        <ReaderEntryDetail
+                            archivePending={false}
+                            entry={{
+                                ...entry,
+                                id,
+                                feedId: id === 33 ? 22 : 21,
+                            }}
+                            error={null}
+                            isFetching={false}
+                            isPending={false}
+                            mutationError={null}
+                            onBack={() => undefined}
+                            onRetry={() => undefined}
+                            onSetArchived={() => undefined}
+                            onSetRead={() => undefined}
+                            onSetStarred={() => undefined}
+                            onSetSummarize={() => undefined}
+                            readPending={false}
+                            selected
+                            starPending={false}
+                            summarize={false}
+                        />
+                    </MantineProvider>
+                </QueryClientProvider>,
+            );
+        try {
+            for (const id of [31, 32, 33, 31]) {
+                await act(() => render(id));
+                await act(async () => {
+                    await vi.waitFor(() =>
+                        expect(container.textContent).toContain(
+                            `Full text ${id}`,
+                        ),
+                    );
+                });
+                if (id === 31) {
+                    await act(() =>
+                        container
+                            .querySelector(
+                                '[aria-label="Show the feed version"]',
+                            )
+                            ?.dispatchEvent(
+                                new window.Event('click', { bubbles: true }),
+                            ),
+                    );
+                    expect(container.textContent).toContain('Article content.');
+                    expect(container.textContent).not.toContain('Full text 31');
+                }
+            }
+            expect(
+                fetch.mock.calls
+                    .filter(([, init]) => init?.method === 'POST')
+                    .map(([url]) => url),
+            ).toEqual([
+                '/api/entries/31/full-content',
+                '/api/entries/32/full-content',
+                '/api/entries/33/full-content',
+            ]);
+            expect(getItem).not.toHaveBeenCalledWith(
+                expect.stringMatching(/^larafeed-feed-/),
+            );
+        } finally {
+            await act(() => root.unmount());
+            client.clear();
+            vi.unstubAllGlobals();
         }
-        expect(
-            fetch.mock.calls
-                .filter(([, init]) => init?.method === 'POST')
-                .map(([url]) => url),
-        ).toEqual([
-            '/api/entries/31/full-content',
-            '/api/entries/32/full-content',
-        ]);
-    } finally {
-        await act(() => root.unmount());
-        client.clear();
-        vi.unstubAllGlobals();
-    }
-});
+    },
+);
 
 describe('ReaderEntryDetail summaries', () => {
     it('renders cached sanitized summary HTML without regeneration', () => {
@@ -250,7 +290,7 @@ describe('ReaderEntryDetail summaries', () => {
                 generatedAt: 1_900_000_000_000,
             },
         });
-        expect(markup).toContain('Article content.');
+        expect(markup).toContain('Full article content.');
         expect(markup).not.toContain('Back to article');
         expect(markup).not.toContain('Must stay inactive.');
         expect(markup).not.toContain('Loading summary');
@@ -270,10 +310,10 @@ describe('ReaderEntryDetail summaries', () => {
         expect(markup).toMatch(/<h1[^>]*tabindex="-1"[^>]*>Article<\/h1>/u);
     });
 
-    it('offers the full article toggle in the toolbar', () => {
+    it('starts with full content and offers the feed version in the toolbar', () => {
         const markup = renderDetail();
 
-        expect(markup).toContain('aria-label="Fetch the full article"');
+        expect(markup).toContain('aria-label="Show the feed version"');
         expect(markup).not.toContain('Read the full article');
     });
 });
